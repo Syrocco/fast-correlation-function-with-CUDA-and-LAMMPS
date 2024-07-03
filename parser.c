@@ -49,8 +49,9 @@ void init_rdump(Dump* dump){
 		printf("[init_rdump]: Failed to allocate a buffer of size %d. Exit.\n",BLOCKSIZE);
 		exit(1);
 	}
-	int nblocks=0;  //Counts how many blocks have been searched to keep tracks of the position of the frame in the stream.
-	int overlap=strlen("ITEM: TIMESTEP")-1;  //Blocs overlap by this amount to avoid missing frames where "ITEM: TIMESTEP" is at a bloc boundary
+	long int nblocks=0;  //Counts how many blocks have been searched to keep tracks of the position of the frame in the stream.
+	long int overlap=strlen("ITEM: TIMESTEP")-1;  //Blocs overlap by this amount to avoid missing frames where "ITEM: TIMESTEP" is at a bloc boundary
+	
 	while(feof(dump->file)==0){
 		//Null terminate the block for strstr
 		block[fread(block,sizeof(char),BLOCKSIZE-1,dump->file)]='\0';
@@ -59,12 +60,14 @@ void init_rdump(Dump* dump){
 			if(dump->nframes==nframemax){
 				nframemax*=growthfactor;
 				dump->framepos=(long int *)realloc(dump->framepos,nframemax*sizeof(long int));
+				
 				if(dump->framepos==NULL){
 					printf("[init_rdump]: Failed to allocate an array of size %lu. Exit.\n",nframemax*sizeof(long int));
 					exit(1);
 				}
 			}
 			dump->framepos[dump->nframes]=nblocks*(BLOCKSIZE-1-overlap)+framestart-block;
+			//printf("%ld\n", dump->framepos[dump->nframes]);
 			++dump->nframes;
 			++framestart;   //Offset by one to not find the same frame twice
 		}
@@ -135,6 +138,7 @@ void jump_to_frame(int i,Dump* dump){
 	dump->framesize=dump->framepos[i+1]-dump->framepos[i];
 	free(dump->framebuff);
 	dump->framebuff=(char*)malloc((dump->framesize+1)*sizeof(char));
+	//printf("framesize = %ld et %ld at position: %d\n", dump->framepos[i+1],dump->framepos[i], i);
 	if(dump->framebuff==NULL){
 		printf("[jump_to_frame]: Failed to assign frame buffer of size %lu.Exit.\n",(dump->framesize+1)*sizeof(char));
 		exit(1);
@@ -705,8 +709,8 @@ void add_intatomprop(int* vals,char* prop,Dump* dumpout,Dump* dumpin){
 		charcount+=writtenchar;
 	}
 	// Write the new frame buffer
-	int prevsecsize=dumpout->secpos[atomsecid]-dumpout->secpos[0];
-	int nextsecsize=dumpout->secpos[dumpout->nsec]-dumpout->secpos[atomsecid+1];
+	long int prevsecsize=dumpout->secpos[atomsecid]-dumpout->secpos[0];
+	long int nextsecsize=dumpout->secpos[dumpout->nsec]-dumpout->secpos[atomsecid+1];
 	dumpout->framesize=prevsecsize+charcount+nextsecsize;
 	char* newframebuff=(char*)malloc((dumpout->framesize+1)*sizeof(char));
 	strlcpy(newframebuff,dumpout->framebuff,prevsecsize+1);
@@ -774,8 +778,8 @@ void add_doubleatomprop(double* vals,char* prop,Dump* dumpout,Dump* dumpin){
 		charcount+=writtenchar;
 	}
 	// Write the new frame buffer
-	int prevsecsize=dumpout->secpos[atomsecid]-dumpout->secpos[0];
-	int nextsecsize=dumpout->secpos[dumpout->nsec]-dumpout->secpos[atomsecid+1];
+	long int prevsecsize=dumpout->secpos[atomsecid]-dumpout->secpos[0];
+	long int nextsecsize=dumpout->secpos[dumpout->nsec]-dumpout->secpos[atomsecid+1];
 	dumpout->framesize=prevsecsize+charcount+nextsecsize;
 	char* newframebuff=(char*)malloc((dumpout->framesize+1)*sizeof(char));
 	strlcpy(newframebuff,dumpout->framebuff,prevsecsize+1);
@@ -840,8 +844,8 @@ void del_atomprop(char* prop,Dump* dumpout,Dump* dumpin){
 		atomsbuff[writtenchar-1]='\n';  // Replace last space with new line
 	}
 	// Write the new frame buffer
-	int prevsecsize=dumpout->secpos[atomsecid]-dumpout->secpos[0];
-	int nextsecsize=dumpout->secpos[dumpout->nsec]-dumpout->secpos[atomsecid+1];
+	long int prevsecsize=dumpout->secpos[atomsecid]-dumpout->secpos[0];
+	long int nextsecsize=dumpout->secpos[dumpout->nsec]-dumpout->secpos[atomsecid+1];
 	dumpout->framesize=prevsecsize+writtenchar+nextsecsize;
 	char* newframebuff=(char*)malloc((dumpout->framesize+1)*sizeof(char));
 	strlcpy(newframebuff,dumpout->framebuff,prevsecsize+1);
@@ -870,7 +874,7 @@ void add_section(char* header,int headsize,char* content,int contentsize,Dump* d
 	if(dumpout->framesize==0){
 		cp_framebuff(dumpin,dumpout);
 	}
-	int oldframesize=dumpout->framesize;
+	long int oldframesize=dumpout->framesize;
 	dumpout->framesize+=headsize+contentsize;
 	dumpout->framebuff=realloc(dumpout->framebuff,dumpout->framesize+1);
 	if(dumpout->framebuff==NULL){

@@ -85,7 +85,7 @@ void compute(Dump* dump, float qmax) {
         a = 0;
     }
     if (b < 1){
-        b = dump->nframes;
+        b = dump->nframes + b;
     }
     if (c < 1){
         c = 1;

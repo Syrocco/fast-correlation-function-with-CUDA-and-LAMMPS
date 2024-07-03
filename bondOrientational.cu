@@ -140,7 +140,7 @@ void print(corr* g, int n){
 }
 
 int main(){
-    char* path_in = "0.7075.dump";
+    char* path_in = "/home/syrocco/Documents/correlation function/N_99960dtnoise_0.300res_0.950gamma_0.300T_0.010phi_0.765000rat_1.000vo_3.500ao_1.500delta_0.030Lx_640.704Ly_640.704q_0.000v_1.dump";
     Dump* dump = dump_open(path_in, 'r');
     int nframes = dump->nframes;
     int n = 1000;

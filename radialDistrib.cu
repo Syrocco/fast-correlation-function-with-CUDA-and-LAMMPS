@@ -16,10 +16,10 @@ void pars(char* data){
     char *token;
     strcpy(input, data);
 
-    // Remove the newline character from the input
+    
     input[strcspn(input, "\n")] = '\0';
 
-    // Use strtok to split the string
+  
     token = strtok(input, ":");
 
     if (token != NULL) {
@@ -49,11 +49,12 @@ void pars(char* data){
 
 __global__ void histogramKernel(float* x, float* y, floatingType* count, int N, float halfL, int n) {
     int tid = blockIdx.x * blockDim.x + threadIdx.x;
+    printf("%d\n", tid);
     float qx = 0;
-    //float qy = 3.33503;
+    
     float qy = 2691.98;
     if (tid < N) {
-        printf("%d / %d \r", tid, N);
+        //printf("%d / %d \r", tid, N);
         float xi = x[tid];
         float yi = y[tid];
 
@@ -102,13 +103,12 @@ corr* correlation(Dump* dump, int n) {
     float* device_x;
     float* device_y;
     floatingType* device_count;
-    // Allocate memory on the GPU
     cudaMalloc((void**)&device_x, N * sizeof(float));
     cudaMalloc((void**)&device_y, N * sizeof(float));
     cudaMalloc((void**)&device_count, n * sizeof(floatingType));
     floatingType* count = (floatingType*)calloc(n, sizeof(floatingType));
     for (int frame = a; frame < b; frame += c) {
-        printf("%d/%d\r", a, b);
+        //printf("%d/%d\r", a, b);
         fflush(stdout);
         loopN++;
         jump_to_frame(frame, dump);
@@ -127,15 +127,12 @@ corr* correlation(Dump* dump, int n) {
         int threadsPerBlock = 256;
         int numBlocks = (N + threadsPerBlock - 1)/threadsPerBlock;
 
-        // Launch the CUDA kernel to calculate the histogram
+        
         histogramKernel<<<numBlocks, threadsPerBlock>>>(device_x, device_y, device_count, N, halfL, n);
 
-        // Copy the histogram result back from the device to the host
         cudaMemcpy(count, device_count, n * sizeof(floatingType), cudaMemcpyDeviceToHost);
 
         for (int i = 0; i < n; i++){
-            
-                //printf("%lf ", g6Temp[i]);
             g6[i].g += count[i];
             count[i] = 0;
         }
