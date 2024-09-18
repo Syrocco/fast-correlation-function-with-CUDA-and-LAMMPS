@@ -40,7 +40,7 @@ void pars(char* data){
     }
 }
 
-__global__ void compute_structf_kernel(float* xpos, float* ypos, int nscat, float* qx, int nqx, float* qy, int nqy, float* structf)
+__global__ void compute_structf_kernel(float* xpos, float* ypos, float* vx, float* vy, int nscat, float* qx, int nqx, float* qy, int nqy, float* structf)
 {
     int i = blockIdx.x * blockDim.x + threadIdx.x;
     int j = blockIdx.y * blockDim.y + threadIdx.y;
@@ -51,13 +51,18 @@ __global__ void compute_structf_kernel(float* xpos, float* ypos, int nscat, floa
         printf("%d / %d \r", j, nqx);
         float im = 0;
         float re = 0;
-
+        float q = sqrt(qx[i]*qx[i] + qy[j]*qy[j]);
+        float qxu = qx[i]/q;
+        float qyu = qy[j]/q;
         for (int k = 0; k < nscat; ++k)
         {
-            float qr = qx[i] * xpos[k] + qy[j] * ypos[k];
-
-            re += cos(qr);
-            im += sin(qr);
+            float qr = qx[i]*xpos[k] + qy[j]*ypos[k];
+            //float q = sqrt(qx[i]*qx[i] + qy[j]*qy[j]);
+            //float v = qx[i]/q*vx[k] + qy[j]/q*vy[k]; 
+            float T = 0.5*(vx[k]*vx[k] + vy[k]*vy[k]);
+            //float v = sqrt(vx[k]*vx[k] + vy[k]*vy[k]);
+            re += T*cos(qr);
+            im += T*sin(qr);
         }
 
         structf[i * nqy + j] = (re * re + im * im) / nscat;
@@ -66,26 +71,19 @@ __global__ void compute_structf_kernel(float* xpos, float* ypos, int nscat, floa
 
 void compute(Dump* dump, float qmax) {
     char hboxx;
-    float Lx = get_boxx(&hboxx, 1, dump);
-    char hboxy;
-    float Ly = get_boxy(&hboxy, 1, dump);
-    float xx = 2*M_PI/Lx;
-    float yy = 2*M_PI/Ly;
-    int nqx = 2*qmax/xx + 1;
-    int nqy = 2*qmax/yy + 1;
+    float L = get_boxx(&hboxx, 1, dump);
+    float xx = 2*M_PI/L;
+    int nq = 2*qmax/xx + 1;
     int N = get_natoms(dump);
 
     float* x = (float*)calloc(N, sizeof(float));
     float* y = (float*)calloc(N, sizeof(float));
-    float* qx = (float*)calloc(nqx, sizeof(float));
-    float* qy = (float*)calloc(nqy, sizeof(float));
-    float* S = (float*)calloc(nqy*nqx, sizeof(float));
-
-    for (int i = 0; i < nqx; ++i){
-        qx[i] = xx * ( i - (nqx - 1) / 2);
-    }
-    for (int i = 0; i < nqy; ++i){
-        qy[i] = yy * ( i - (nqy - 1) / 2);
+    float* vx = (float*)calloc(N, sizeof(float));
+    float* vy = (float*)calloc(N, sizeof(float));
+    float* q = (float*)calloc(nq, sizeof(float));
+    float* S = (float*)calloc(nq*nq, sizeof(float));
+    for (int i = 0; i < nq; ++i){
+		q[i] = xx * ( i - (nq - 1) / 2);
     }
     
 
@@ -93,38 +91,39 @@ void compute(Dump* dump, float qmax) {
         a = 0;
     }
     if (b < 1){
-        b = dump->nframes + b;
+        b = dump->nframes;
     }
     if (c < 1){
         c = 1;
     }
     fprintf(fileout, "%d\n", (int)((b - a) / c));
-    for (int i = 0; i < nqx; ++i)
-        fprintf(fileout, "%g ", qx[i]);
+    for (int i = 0; i < nq; ++i)
+        fprintf(fileout, "%g ", q[i]);
     fprintf(fileout, "\n");
 
-    for (int j = 0; j < nqy; ++j)
-        fprintf(fileout, "%g ", qy[j]);
+    for (int j = 0; j < nq; ++j)
+        fprintf(fileout, "%g ", q[j]);
     fprintf(fileout, "\n");
 
     float* device_x;
     float* device_y;
-    float* device_qx;
-    float* device_qy;
+    float* device_vx;
+    float* device_vy;
+    float* device_q;
     float* device_S;
     // Allocate memory on the GPU
     cudaMalloc((void**)&device_x, N * sizeof(float));
     cudaMalloc((void**)&device_y, N * sizeof(float));
-    cudaMalloc((void**)&device_qx, nqx * sizeof(float));
-    cudaMalloc((void**)&device_qy, nqy * sizeof(float));
-    cudaMalloc((void**)&device_S, nqx*nqy * sizeof(float));
-    cudaMemcpy(device_qy, qy, nqy * sizeof(float), cudaMemcpyHostToDevice);
-    cudaMemcpy(device_qx, qx, nqx * sizeof(float), cudaMemcpyHostToDevice);
+    cudaMalloc((void**)&device_vx, N * sizeof(float));
+    cudaMalloc((void**)&device_vy, N * sizeof(float));
+    cudaMalloc((void**)&device_q, nq * sizeof(float));
+    cudaMalloc((void**)&device_S, nq*nq * sizeof(float));
+    cudaMemcpy(device_q, q, nq * sizeof(float), cudaMemcpyHostToDevice);
     
 
     // Define the number of threads per block and the number of blocks
     dim3 blockDim(32, 32); // Adjust block dimensions as needed
-    dim3 gridDim((nqx + blockDim.x - 1) / blockDim.x, (nqy + blockDim.y - 1) / blockDim.y);
+    dim3 gridDim((nq + blockDim.x - 1) / blockDim.x, (nq + blockDim.y - 1) / blockDim.y);
     
     
     for (int i = a; i < b; i = i + c){
@@ -133,31 +132,33 @@ void compute(Dump* dump, float qmax) {
 
         get_floatatomprop("x", x, N, dump);
         get_floatatomprop("y", y, N, dump);
-        
+        get_floatatomprop("vx", vx, N, dump);
+        get_floatatomprop("vy", vy, N, dump);
 
         
 
         
 
         // Copy data from host to device
-        cudaMemset(device_S, 0, nqy * nqx * sizeof(float));
+        cudaMemset(device_S, 0, nq * nq * sizeof(float));
         cudaMemcpy(device_x, x, N * sizeof(float), cudaMemcpyHostToDevice);
-        
         cudaMemcpy(device_y, y, N * sizeof(float), cudaMemcpyHostToDevice);
+        cudaMemcpy(device_vx, vx, N * sizeof(float), cudaMemcpyHostToDevice);
+        cudaMemcpy(device_vy, vy, N * sizeof(float), cudaMemcpyHostToDevice);
 
 
-        compute_structf_kernel<<<gridDim, blockDim>>>(device_x, device_y, N, device_qx, nqx, device_qy, nqy, device_S);
+        compute_structf_kernel<<<gridDim, blockDim>>>(device_x, device_y, device_vx, device_vy, N, device_q, nq, device_q, nq, device_S);
 
         // Copy the result back to the host
-        cudaMemcpy(S, device_S, nqx * nqy * sizeof(float), cudaMemcpyDeviceToHost);
+        cudaMemcpy(S, device_S, nq * nq * sizeof(float), cudaMemcpyDeviceToHost);
 
         
 
         /* Write the structure factor as a nqx * nqy matrix. */
-        for (int i = 0; i < nqx; ++i)
+        for (int i = 0; i < nq; ++i)
         {
-            for (int j = 0; j < nqy; ++j)
-                fprintf(fileout, "%g ", S[i*nqy + j]);
+            for (int j = 0; j < nq; ++j)
+                fprintf(fileout, "%g ", S[i*nq + j]);
 
             fprintf(fileout, "\n");
     	}
@@ -174,4 +175,4 @@ int main(int argc, char** argv){
     fileout = fopen(path_out, "w");
     Dump* dump = dump_open(path_in, 'r');
     compute(dump, qmax);
-}
+} 
