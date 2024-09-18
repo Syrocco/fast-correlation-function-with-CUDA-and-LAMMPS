@@ -47,12 +47,11 @@ void pars(char* data){
 #define floatingType double
 
 
-__global__ void histogramKernel(float* x, float* y, floatingType* count, int N, float halfL, int n) {
+__global__ void histogramKernel(float* x, float* y, floatingType* count, int N, float halfLx, float halfLy, int n) {
     int tid = blockIdx.x * blockDim.x + threadIdx.x;
     printf("%d\n", tid);
-    float qx = 0;
-    
-    float qy = 2691.98;
+    float qx = 3.2329;
+    float qy = 0.4573;
     if (tid < N) {
         //printf("%d / %d \r", tid, N);
         float xi = x[tid];
@@ -61,18 +60,18 @@ __global__ void histogramKernel(float* x, float* y, floatingType* count, int N, 
         for (int j = 0; j < tid; j++) {
             float dx = xi - x[j];
             float dy = yi - y[j];
-            if (dx >= halfL)
-                dx -= 2*halfL;
-            else if (dx < -halfL)
-                dx += 2*halfL;
-            if (dy >= halfL)
-                dy -= 2*halfL;
-            else if (dy < -halfL)
-                dy += 2*halfL;
+            if (dx >= halfLx)
+                dx -= 2*halfLx;
+            else if (dx < -halfLx)
+                dx += 2*halfLx;
+            if (dy >= halfLy)
+                dy -= 2*halfLy;
+            else if (dy < -halfLy)
+                dy += 2*halfLy;
             float r = sqrt(dx * dx + dy * dy);
 
-            if (r < halfL) {
-                int idx = (int)(n * (r / halfL));
+            if (r < min(halfLx, halfLy)) {
+                int idx = (int)(n * (r / min(halfLx, halfLy)));
                 atomicAdd(&count[idx], (floatingType)2*cos(qx*dx + qy*dy));
             }
         }
@@ -81,8 +80,11 @@ __global__ void histogramKernel(float* x, float* y, floatingType* count, int N, 
 
 corr* correlation(Dump* dump, int n) {
     char hboxx;
-    float L = get_boxx(&hboxx, 1, dump);
-    float halfL = 0.5 * L;
+    char hboxy;
+    float Lx = get_boxx(&hboxx, 1, dump);
+    float halfLx = 0.5 * Lx;
+    float Ly = get_boxy(&hboxy, 1, dump);
+    float halfLy = 0.5 * Ly;
     int N = get_natoms(dump);
 
     float* x = (float*)calloc(N, sizeof(float));
@@ -128,7 +130,7 @@ corr* correlation(Dump* dump, int n) {
         int numBlocks = (N + threadsPerBlock - 1)/threadsPerBlock;
 
         
-        histogramKernel<<<numBlocks, threadsPerBlock>>>(device_x, device_y, device_count, N, halfL, n);
+        histogramKernel<<<numBlocks, threadsPerBlock>>>(device_x, device_y, device_count, N, halfLx, halfLy, n);
 
         cudaMemcpy(count, device_count, n * sizeof(floatingType), cudaMemcpyDeviceToHost);
 
@@ -145,9 +147,9 @@ corr* correlation(Dump* dump, int n) {
     cudaFree(device_count);
     free(count);
     for (int i = 0; i < n; i++){
-        g6[i].r = (i + 0.5)*(halfL/n);
+        g6[i].r = (i + 0.5)*(min(halfLx, halfLy)/n);
         g6[i].g /= loopN;
-        g6[i].g = L*L*g6[i].g/(2*M_PI*N*(N - 1)*g6[i].r*(g6[1].r - g6[0].r));
+        g6[i].g = Lx*Ly*g6[i].g/(2*M_PI*N*(N - 1)*g6[i].r*(g6[1].r - g6[0].r));
         printf("%lf ", g6[i].g);
     }
 
@@ -166,7 +168,6 @@ int main(int argc, char** argv){
     pars(argv[4]);
     size_t length = strlen(path_in);
     Dump* dump = dump_open(path_in, 'r');
-    int nframes = dump->nframes;
     double sig = 2;
     if ('L' == path_in[length - 1]){
         sig = 0.0025;

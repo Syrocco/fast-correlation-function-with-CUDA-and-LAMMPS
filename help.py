@@ -1,5 +1,6 @@
 import numpy as np
 from scipy.integrate import trapezoid
+import matplotlib.pyplot as plt
 
 def SQ(file, size = -1):
 
@@ -51,3 +52,17 @@ def FQT(file, size = -1, N = 5000):
     for i in range(n):
         FQTav[i] = np.bincount(index.flatten(), weights=FQT[i].real.flatten(), minlength=size)/count
     return t, qx, FQTav[:, 1:]/FQTav[0, 1:]
+
+def plotCorrelation(file):
+    a = np.loadtxt(file)
+    plt.plot(a[:, 0], np.abs(a[:, 1]))
+    plt.xlabel("r")
+    plt.ylabel("correlation")
+def plotCorrelationG(file):
+    a = np.loadtxt(file)
+    plt.plot(a[:, 0], (np.abs(a[:, 1]) - 1))
+    plt.xlabel("r")
+    plt.ylabel("correlation")
+plotCorrelation("a.txt")
+plt.yscale("log")
+#plt.xscale("log")

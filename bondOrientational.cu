@@ -1,19 +1,51 @@
-
 extern "C" { 
 #include "parser.h"
 }
 #include <stdlib.h>
 #include <math.h>
 
-#define floatingType double
-
 typedef struct {   
     float r;
     float g;
 } corr;
 
+int a, b, c;
+void pars(char* data){
+    char input[100];
+    char *token;
+    strcpy(input, data);
+
+    
+    input[strcspn(input, "\n")] = '\0';
+
+  
+    token = strtok(input, ":");
+
+    if (token != NULL) {
+        a = atoi(token);
+        token = strtok(NULL, ":");
+        if (token != NULL) {
+            b = atoi(token);
+            token = strtok(NULL, ":");
+            if (token != NULL) {
+                c = atoi(token);
+            }
+            else {
+                printf("Invalid input: Not enough values.\n");
+            }
+        } 
+        else {
+            printf("Invalid input: Not enough values.\n");
+        }
+    } 
+    else {
+        printf("Invalid input: Not enough values.\n");
+    }
+}
+
+#define floatingType double
 //__global__ void histogramKernel(float* x, float* y, float* qa, floatingType* g6Temp, int* count, int N, float halfL, int n) {
-__global__ void histogramKernel(float* x, float* y, float* qa, floatingType* g6Temp, int* count, int N, float halfL, int n) {
+__global__ void histogramKernel(float* x, float* y, float* qa, floatingType* g6Temp, int* count, int N, float halfLx, float halfLy, int n) {
     int tid = blockIdx.x * blockDim.x + threadIdx.x;
     
     if (tid < N) {
@@ -29,19 +61,19 @@ __global__ void histogramKernel(float* x, float* y, float* qa, floatingType* g6T
         
             float dx = xi - x[j];
             float dy = yi - y[j];
-            if (dx >= halfL)
-                dx -= 2*halfL;
-            else if (dx < -halfL)
-                dx += 2*halfL;
-            if (dy >= halfL)
-                dy -= 2*halfL;
-            else if (dy < -halfL)
-                dy += 2*halfL;
+            if (dx >= halfLx)
+                dx -= 2*halfLx;
+            else if (dx < -halfLx)
+                dx += 2*halfLx;
+            if (dy >= halfLy)
+                dy -= 2*halfLy;
+            else if (dy < -halfLy)
+                dy += 2*halfLy;
             float r = sqrt(dx*dx + dy*dy);
 
     
-            if (r < halfL) {
-                int idx = (int)(n * (r / halfL));
+            if (r < min(halfLx, halfLy)) {
+                int idx = (int)(n * (r / min(halfLx, halfLy)));
                 
                 float qj = qa[j];
 
@@ -52,10 +84,13 @@ __global__ void histogramKernel(float* x, float* y, float* qa, floatingType* g6T
     }
 }
 
-corr* correlation(Dump* dump, int n, int start, int end, int step) {
+corr* correlation(Dump* dump, int n) {
     char hboxx;
-    float L = get_boxx(&hboxx, 1, dump);
-    float halfL = 0.5 * L;
+    char hboxy;
+    float Lx = get_boxx(&hboxx, 1, dump);
+    float halfLx = 0.5 * Lx;
+    float Ly = get_boxy(&hboxy, 1, dump);
+    float halfLy = 0.5 * Ly;
     int N = get_natoms(dump);
 
     float* x = (float*)calloc(N, sizeof(float));
@@ -64,8 +99,18 @@ corr* correlation(Dump* dump, int n, int start, int end, int step) {
     corr* g6 = (corr*)calloc(n, sizeof(corr));
 
     int loopN = 0;
-    for (int frame = start; frame < end; frame += step) {
-        printf("%d/%d\r", frame, end);
+     if (a < 0){
+        a = 0;
+    }
+    if (b < 1){
+        b = dump->nframes;
+    }
+    if (c < 1){
+        c = 1;
+    }
+
+    for (int frame = a; frame < b; frame += c) {
+        printf("%d/%d\r", frame, b);
         fflush(stdout);
         loopN++;
         jump_to_frame(frame, dump);
@@ -102,7 +147,7 @@ corr* correlation(Dump* dump, int n, int start, int end, int step) {
         int numBlocks = (N + threadsPerBlock - 1) / threadsPerBlock;
 
         // Launch the CUDA kernel to calculate the histogram
-        histogramKernel<<<numBlocks, threadsPerBlock>>>(device_x, device_y, device_qa, device_g6Temp, device_count, N, halfL, n);
+        histogramKernel<<<numBlocks, threadsPerBlock>>>(device_x, device_y, device_qa, device_g6Temp, device_count, N, halfLx, halfLy, n);
 
         // Copy the histogram result back from the device to the host
         cudaMemcpy(g6Temp, device_g6Temp, n * sizeof(floatingType), cudaMemcpyDeviceToHost);
@@ -123,7 +168,7 @@ corr* correlation(Dump* dump, int n, int start, int end, int step) {
     }
 
     for (int i = 0; i < n; i++){
-        g6[i].r = i*(halfL/n);
+        g6[i].r = i*(min(halfLx, halfLy)/n);
         g6[i].g /= loopN;
     }
 
@@ -131,20 +176,27 @@ corr* correlation(Dump* dump, int n, int start, int end, int step) {
     return g6;
 }
 
-void print(corr* g, int n){
+
+int main(int argc, char** argv){
+
+    float factor = atof(argv[1]);
+    char* path_in = argv[2];
+    char* path_out = argv[3];
+    pars(argv[4]);
+    size_t length = strlen(path_in);
+    Dump* dump = dump_open(path_in, 'r');
+    double sig = 2;
+    if ('L' == path_in[length - 1]){
+        sig = 0.0025;
+    }
+    char hboxx;
+    int n = get_boxx(&hboxx, 1, dump)/(sig*2*factor);
+    corr* g = correlation(dump, n);
     FILE* file;
 
-    file = fopen ("data2.txt", "w+");
+    file = fopen (path_out, "w+");
     for (int i = 0; i < n; i++)
         fprintf(file, "%f %f\n", g[i].r, g[i].g);
-}
-
-int main(){
-    char* path_in = "/home/syrocco/Documents/correlation function/N_99960dtnoise_0.300res_0.950gamma_0.300T_0.010phi_0.765000rat_1.000vo_3.500ao_1.500delta_0.030Lx_640.704Ly_640.704q_0.000v_1.dump";
-    Dump* dump = dump_open(path_in, 'r');
-    int nframes = dump->nframes;
-    int n = 1000;
-    corr* g6 = correlation(dump, n, 0, nframes, 1);
-    print(g6, n);
+    fclose(file);
 }
 
